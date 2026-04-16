@@ -171,6 +171,11 @@
             font-size: 11px;
         }
 
+        .button-group {
+            display: flex;
+            gap: 4px;
+        }
+
         ::-webkit-scrollbar {
             width: 16px;
         }
@@ -198,6 +203,7 @@
         <div class="controls">
             <div id="status-light" class="status-indicator"></div>
             <button id="start-button" onclick="toggleWatching()">Start Watching Clipboard</button>
+            <button onclick="setToken()">Settings</button>
             <span style="font-size: 10px; color: #666; margin-left: auto;">(Tab must be focused to capture)</span>
         </div>
         <div id="list-container">
@@ -211,6 +217,13 @@
     let running = false;
     let db;
     let lastDateStr = null;
+
+    function setToken() {
+        const token = prompt("Enter GitHub Personal Access Token (requires 'gist' scope):", localStorage.getItem("gh_gist_token") || "");
+        if (token !== null) {
+            localStorage.setItem("gh_gist_token", token);
+        }
+    }
 
     // Trigger check when window regains focus to "catch up"
     window.addEventListener('focus', () => {
@@ -324,23 +337,85 @@
         span.textContent = entry.text.length > 100 ? entry.text.slice(0, 100) + "..." : entry.text;
         span.title = entry.text;
 
-        const btn = document.createElement("button");
-        btn.textContent = "Copy";
-        btn.className = "copy-btn";
-        btn.onclick = () => {
+        const buttonGroup = document.createElement("div");
+        buttonGroup.className = "button-group";
+
+        const btnCopy = document.createElement("button");
+        btnCopy.textContent = "Copy";
+        btnCopy.className = "copy-btn";
+        btnCopy.onclick = () => {
             navigator.clipboard.writeText(entry.text);
-            btn.textContent = "Copied!";
-            setTimeout(() => btn.textContent = "Copy", 1000);
+            btnCopy.textContent = "Copied!";
+            setTimeout(() => btnCopy.textContent = "Copy", 1000);
         };
 
+        const btnGist = document.createElement("button");
+        btnGist.textContent = "Gist";
+        btnGist.className = "copy-btn";
+        btnGist.onclick = () => uploadToGist(entry.text, btnGist);
+
+        buttonGroup.appendChild(btnCopy);
+        buttonGroup.appendChild(btnGist);
+
         div.appendChild(span);
-        div.appendChild(btn);
+        div.appendChild(buttonGroup);
 
         if (prepend) {
             // Insert after the date header
             list.insertBefore(div, list.children[1]);
         } else {
             list.appendChild(div);
+        }
+    }
+
+    async function uploadToGist(text, btn) {
+        let token = localStorage.getItem("gh_gist_token");
+        
+        if (!token) {
+            token = prompt("Enter GitHub Personal Access Token (requires 'gist' scope):");
+            if (!token) return;
+            localStorage.setItem("gh_gist_token", token);
+        }
+
+        const oldText = btn.textContent;
+        btn.textContent = "Uploading...";
+        btn.disabled = true;
+
+        try {
+            const response = await fetch("https://api.github.com/gists", {
+                method: "POST",
+                headers: {
+                    "Authorization": `token ${token}`,
+                    "Accept": "application/vnd.github.v3+json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    description: "Uploaded from Clipboard Vault",
+                    public: false,
+                    files: {
+                        "clipboard_export.txt": {
+                            content: text
+                        }
+                    }
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                btn.textContent = "Gisted!";
+                window.open(data.html_url, '_blank');
+                setTimeout(() => {
+                    btn.textContent = "Gist";
+                    btn.disabled = false;
+                }, 2000);
+            } else {
+                throw new Error("Failed to upload. Check your token.");
+            }
+        } catch (error) {
+            alert(error.message);
+            localStorage.removeItem("gh_gist_token");
+            btn.textContent = "Gist";
+            btn.disabled = false;
         }
     }
 
@@ -372,6 +447,9 @@
             clearInterval(window.clipboardInterval);
         }
     }
+
+    // Start watching immediately on load
+    window.addEventListener('load', toggleWatching);
 </script>
 
 </body>
